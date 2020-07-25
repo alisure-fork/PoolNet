@@ -1,18 +1,22 @@
+import math
 import torch
+import numpy as np
 from torch import nn
 from torch.nn import init
 import torch.nn.functional as F
-import math
 from torch.autograd import Variable
-import numpy as np
-
-from .deeplab_resnet import resnet50_locate
 from .vgg import vgg16_locate
+from .deeplab_resnet import resnet50_locate
 
+config_vgg = {'convert': [[128, 256, 512, 512, 512], [64, 128, 256, 512, 512]],
+              'deep_pool': [[512, 512, 256, 128], [512, 256, 128, 128],
+                            [True, True, True, False], [True, True, True, False]],
+              'score': 128}  # no convert layer, no conv6
+config_resnet = {'convert': [[64, 256, 512, 1024, 2048], [128, 256, 256, 512, 512]],
+                 'deep_pool': [[512, 512, 256, 256, 128], [512, 256, 256, 128, 128],
+                               [False, True, True, True, False], [True, True, True, True, False]],
+                 'score': 128}
 
-config_vgg = {'convert': [[128,256,512,512,512],[64,128,256,512,512]], 'deep_pool': [[512, 512, 256, 128], [512, 256, 128, 128], [True, True, True, False], [True, True, True, False]], 'score': 128}  # no convert layer, no conv6
-
-config_resnet = {'convert': [[64,256,512,1024,2048],[128,256,256,512,512]], 'deep_pool': [[512, 512, 256, 256, 128], [512, 256, 256, 128, 128], [False, True, True, True, False], [True, True, True, True, False]], 'score': 128}
 
 class ConvertLayer(nn.Module):
     def __init__(self, list_k):
@@ -27,6 +31,7 @@ class ConvertLayer(nn.Module):
         for i in range(len(list_x)):
             resl.append(self.convert0[i](list_x[i]))
         return resl
+
 
 class DeepPoolLayer(nn.Module):
     def __init__(self, k, k_out, need_x2, need_fuse):
@@ -59,6 +64,7 @@ class DeepPoolLayer(nn.Module):
             resl = self.conv_sum_c(torch.add(torch.add(resl, x2), x3))
         return resl
 
+
 class ScoreLayer(nn.Module):
     def __init__(self, k):
         super(ScoreLayer, self).__init__()
@@ -69,6 +75,7 @@ class ScoreLayer(nn.Module):
         if x_size is not None:
             x = F.interpolate(x, x_size[2:], mode='bilinear', align_corners=True)
         return x
+
 
 def extra_layer(base_model_cfg, vgg):
     if base_model_cfg == 'vgg':
@@ -87,6 +94,7 @@ def extra_layer(base_model_cfg, vgg):
 
 
 class PoolNet(nn.Module):
+
     def __init__(self, base_model_cfg, base, convert_layers, deep_pool_layers, score_layers):
         super(PoolNet, self).__init__()
         self.base_model_cfg = base_model_cfg
@@ -95,6 +103,10 @@ class PoolNet(nn.Module):
         self.score = score_layers
         if self.base_model_cfg == 'resnet':
             self.convert = convert_layers
+            pass
+
+        self.apply(self.weights_init)
+        pass
 
     def forward(self, x):
         x_size = x.size()
@@ -112,14 +124,21 @@ class PoolNet(nn.Module):
         merge = self.score(merge, x_size)
         return merge
 
+    @staticmethod
+    def weights_init(m):
+        if isinstance(m, nn.Conv2d):
+            m.weight.data.normal_(0, 0.01)
+            if m.bias is not None:
+                m.bias.data.zero_()
+            pass
+        pass
+
+    pass
+
+
 def build_model(base_model_cfg='vgg'):
     if base_model_cfg == 'vgg':
         return PoolNet(base_model_cfg, *extra_layer(base_model_cfg, vgg16_locate()))
     elif base_model_cfg == 'resnet':
         return PoolNet(base_model_cfg, *extra_layer(base_model_cfg, resnet50_locate()))
-
-def weights_init(m):
-    if isinstance(m, nn.Conv2d):
-        m.weight.data.normal_(0, 0.01)
-        if m.bias is not None:
-            m.bias.data.zero_()
+    pass
