@@ -8,6 +8,7 @@ from torch.autograd import Variable
 from .vgg import vgg16_locate
 from .deeplab_resnet import resnet50_locate
 
+
 config_vgg = {'convert': [[128, 256, 512, 512, 512], [64, 128, 256, 512, 512]],
               'deep_pool': [[512, 512, 256, 128], [512, 256, 128, 128],
                             [True, True, True, False], [True, True, True, False]],
@@ -19,6 +20,7 @@ config_resnet = {'convert': [[64, 256, 512, 1024, 2048], [128, 256, 256, 512, 51
 
 
 class ConvertLayer(nn.Module):
+
     def __init__(self, list_k):
         super(ConvertLayer, self).__init__()
         up = []
@@ -32,8 +34,11 @@ class ConvertLayer(nn.Module):
             resl.append(self.convert0[i](list_x[i]))
         return resl
 
+    pass
+
 
 class DeepPoolLayer(nn.Module):
+
     def __init__(self, k, k_out, need_x2, need_fuse):
         super(DeepPoolLayer, self).__init__()
         self.pools_sizes = [2,4,8]
@@ -49,6 +54,7 @@ class DeepPoolLayer(nn.Module):
         self.conv_sum = nn.Conv2d(k, k_out, 3, 1, 1, bias=False)
         if self.need_fuse:
             self.conv_sum_c = nn.Conv2d(k_out, k_out, 3, 1, 1, bias=False)
+        pass
 
     def forward(self, x, x2=None, x3=None):
         x_size = x.size()
@@ -64,11 +70,15 @@ class DeepPoolLayer(nn.Module):
             resl = self.conv_sum_c(torch.add(torch.add(resl, x2), x3))
         return resl
 
+    pass
+
 
 class ScoreLayer(nn.Module):
+
     def __init__(self, k):
         super(ScoreLayer, self).__init__()
         self.score = nn.Conv2d(k ,1, 1, 1)
+        pass
 
     def forward(self, x, x_size=None):
         x = self.score(x)
@@ -76,12 +86,16 @@ class ScoreLayer(nn.Module):
             x = F.interpolate(x, x_size[2:], mode='bilinear', align_corners=True)
         return x
 
+    pass
 
-def extra_layer(base_model_cfg, vgg):
+
+def extra_layer(base_model_cfg, base_model):
     if base_model_cfg == 'vgg':
         config = config_vgg
     elif base_model_cfg == 'resnet':
         config = config_resnet
+    else:
+        raise Exception("......................")
     convert_layers, deep_pool_layers, score_layers = [], [], []
     convert_layers = ConvertLayer(config['convert'])
 
@@ -90,7 +104,7 @@ def extra_layer(base_model_cfg, vgg):
 
     score_layers = ScoreLayer(config['score'])
 
-    return vgg, convert_layers, deep_pool_layers, score_layers
+    return base_model, convert_layers, deep_pool_layers, score_layers
 
 
 class PoolNet(nn.Module):
@@ -99,12 +113,11 @@ class PoolNet(nn.Module):
         super(PoolNet, self).__init__()
         self.base_model_cfg = base_model_cfg
         self.base = base
-        self.deep_pool = nn.ModuleList(deep_pool_layers)
-        self.score = score_layers
         if self.base_model_cfg == 'resnet':
             self.convert = convert_layers
             pass
-
+        self.deep_pool = nn.ModuleList(deep_pool_layers)
+        self.score = score_layers
         self.apply(self.weights_init)
         pass
 
@@ -116,11 +129,11 @@ class PoolNet(nn.Module):
         conv2merge = conv2merge[::-1]
 
         edge_merge = []
-        merge = self.deep_pool[0](conv2merge[0], conv2merge[1], infos[0])
+        merge = self.deep_pool[0](conv2merge[0], conv2merge[1], infos[0])  # A + F
         for k in range(1, len(conv2merge)-1):
-            merge = self.deep_pool[k](merge, conv2merge[k+1], infos[k])
+            merge = self.deep_pool[k](merge, conv2merge[k+1], infos[k])  # A + F
 
-        merge = self.deep_pool[-1](merge)
+        merge = self.deep_pool[-1](merge)  # A
         merge = self.score(merge, x_size)
         return merge
 
@@ -138,7 +151,9 @@ class PoolNet(nn.Module):
 
 def build_model(base_model_cfg='vgg'):
     if base_model_cfg == 'vgg':
-        return PoolNet(base_model_cfg, *extra_layer(base_model_cfg, vgg16_locate()))
+        base_model = vgg16_locate()
     elif base_model_cfg == 'resnet':
-        return PoolNet(base_model_cfg, *extra_layer(base_model_cfg, resnet50_locate()))
-    pass
+        base_model = resnet50_locate()
+    else:
+        raise Exception("............................")
+    return PoolNet(base_model_cfg, *extra_layer(base_model_cfg, base_model))

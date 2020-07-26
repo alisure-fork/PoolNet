@@ -325,7 +325,7 @@ class Solver(object):
 if __name__ == '__main__':
     os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
-    is_train = False
+    is_train = True
     if is_train:
         vgg_path = './pretrained/vgg16_20M.pth'
         resnet_path = './pretrained/resnet50_caffe.pth'

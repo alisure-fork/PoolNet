@@ -1,10 +1,10 @@
-import torch.nn as nn
 import math
 import torch
 import numpy as np
+import torch.nn as nn
 import torch.nn.functional as F
 
-# vgg16
+
 def vgg(cfg, i, batch_norm=False):
     layers = []
     in_channels = i
@@ -28,6 +28,7 @@ def vgg(cfg, i, batch_norm=False):
             in_channels = v
     return layers
 
+
 class vgg16(nn.Module):
     def __init__(self):
         super(vgg16, self).__init__()
@@ -41,9 +42,11 @@ class vgg16(nn.Module):
             elif isinstance(m, nn.BatchNorm2d):
                 m.weight.data.fill_(1)
                 m.bias.data.zero_()
+        pass
 
     def load_pretrained_model(self, model):
         self.base.load_state_dict(model, strict=False)
+        pass
 
     def forward(self, x):
         tmp_x = []
@@ -52,6 +55,9 @@ class vgg16(nn.Module):
             if k in self.extract:
                 tmp_x.append(x)
         return tmp_x
+
+    pass
+
 
 class vgg16_locate(nn.Module):
     def __init__(self):
@@ -62,10 +68,12 @@ class vgg16_locate(nn.Module):
 
         ppms, infos = [], []
         for ii in [1, 3, 5]:
-            ppms.append(nn.Sequential(nn.AdaptiveAvgPool2d(ii), nn.Conv2d(self.in_planes, self.in_planes, 1, 1, bias=False), nn.ReLU(inplace=True)))
+            ppms.append(nn.Sequential(nn.AdaptiveAvgPool2d(ii), nn.Conv2d(self.in_planes, self.in_planes,
+                                                                          1, 1, bias=False), nn.ReLU(inplace=True)))
         self.ppms = nn.ModuleList(ppms)
 
-        self.ppm_cat = nn.Sequential(nn.Conv2d(self.in_planes * 4, self.in_planes, 3, 1, 1, bias=False), nn.ReLU(inplace=True))
+        self.ppm_cat = nn.Sequential(nn.Conv2d(self.in_planes * 4, self.in_planes, 3, 1, 1, bias=False),
+                                     nn.ReLU(inplace=True))
         for ii in self.out_planes:
             infos.append(nn.Sequential(nn.Conv2d(self.in_planes, ii, 3, 1, 1, bias=False), nn.ReLU(inplace=True)))
         self.infos = nn.ModuleList(infos)
@@ -77,9 +85,11 @@ class vgg16_locate(nn.Module):
             elif isinstance(m, nn.BatchNorm2d):
                 m.weight.data.fill_(1)
                 m.bias.data.zero_()
+        pass
 
     def load_pretrained_model(self, model):
         self.vgg16.load_pretrained_model(model)
+        pass
 
     def forward(self, x):
         x_size = x.size()[2:]
@@ -94,3 +104,6 @@ class vgg16_locate(nn.Module):
             infos.append(self.infos[k](F.interpolate(xls, xs[len(self.infos) - 1 - k].size()[2:], mode='bilinear', align_corners=True)))
 
         return xs, infos
+
+    pass
+
