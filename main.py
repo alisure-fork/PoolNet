@@ -332,8 +332,8 @@ if __name__ == '__main__':
         arch = "resnet"  # vgg
         pretrained_model = resnet_path
 
-        lr, wd = 5e-5, 5e-5
-        epoch, batch_size, iter_size, show_every = 24, 1, 10, 1000
+        lr, wd = 5e-5, 5e-4
+        epoch, batch_size, iter_size, show_every = 24, 1, 10, 50
         train_root, train_list = "./data/DUTS/DUTS-TR", "./data/DUTS/DUTS-TR/train_pair.lst"
         save_folder = Tools.new_dir('./results/run-0')
 
