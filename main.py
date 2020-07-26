@@ -27,7 +27,7 @@ class ImageDataTrain(data.Dataset):
         self.sal_source = data_list
         with open(self.sal_source, 'r') as f:
             self.sal_list = [x.strip() for x in f.readlines()]
-        self.sal_list = self.sal_list[:20]
+        # self.sal_list = self.sal_list[:20]
         self.sal_num = len(self.sal_list)
         pass
 
@@ -77,6 +77,62 @@ class ImageDataTrain(data.Dataset):
         in_ = in_.transpose((2, 0, 1))
         return in_
 
+    pass
+
+
+class ImageDataTest(data.Dataset):
+
+    def __init__(self, sal_mode):
+        self.data_source = self.get_test_info(sal_mode)
+        self.data_root = self.data_source["image_root"]
+        with open(self.data_source["image_source"], 'r') as f:
+            self.image_list = [x.strip() for x in f.readlines()]
+        self.image_num = len(self.image_list)
+        pass
+
+    def __getitem__(self, item):
+        image, im_size = self.load_image_test(os.path.join(self.data_root, self.image_list[item]))
+        return {'image': torch.Tensor(image), 'name': self.image_list[item % self.image_num], 'size': im_size}
+
+    def __len__(self):
+        return self.image_num
+
+    @staticmethod
+    def get_test_info(sal_mode='e'):
+        result = {}
+        if sal_mode == 'e':
+            result["image_root"] = './data/ECSSD/Imgs/'
+            result["image_source"] = './data/ECSSD/test.lst'
+        elif sal_mode == 'p':
+            image_root, image_source = './data/PASCALS/Imgs/', './data/PASCALS/test.lst'
+            result["image_root"] = image_root
+            result["image_source"] = image_source
+        elif sal_mode == 'd':
+            image_root, image_source = './data/DUTOMRON/Imgs/', './data/DUTOMRON/test.lst'
+            result["image_root"] = image_root
+            result["image_source"] = image_source
+        elif sal_mode == 'h':
+            image_root, image_source = './data/HKU-IS/Imgs/', './data/HKU-IS/test.lst'
+            result["image_root"] = image_root
+            result["image_source"] = image_source
+        elif sal_mode == 's':
+            image_root, image_source = './data/SOD/Imgs/', './data/SOD/test.lst'
+            result["image_root"] = image_root
+            result["image_source"] = image_source
+        elif sal_mode == 't':
+            image_root, image_source = './data/DUTS/DUTS-TE/DUTS-TE-Image/', './data/DUTS/DUTS-TE/test.lst'
+            mask_root = './data/DUTS/DUTS-TE/DUTS-TE-Mask/'
+            result["image_root"] = image_root
+            result["mask_root"] = mask_root
+            result["image_source"] = image_source
+        elif sal_mode == 'm_r':  # for speed test
+            image_root, image_source = './data/MSRA/Imgs_resized/', './data/MSRA/test_resized.lst'
+            result["image_root"] = image_root
+            result["image_source"] = image_source
+        else:
+            raise Exception(".................")
+        return result
+
     @staticmethod
     def load_image_test(path):
         if not os.path.exists(path):
@@ -91,56 +147,13 @@ class ImageDataTrain(data.Dataset):
     pass
 
 
-class ImageDataTest(data.Dataset):
-
-    def __init__(self, sal_mode):
-        self.data_root, self.data_list = self.get_test_info(sal_mode)
-        with open(self.data_list, 'r') as f:
-            self.image_list = [x.strip() for x in f.readlines()]
-
-        self.image_num = len(self.image_list)
-        pass
-
-    def __getitem__(self, item):
-        image, im_size = self.load_image_test(os.path.join(self.data_root, self.image_list[item]))
-        image = torch.Tensor(image)
-
-        return {'image': image, 'name': self.image_list[item % self.image_num], 'size': im_size}
-
-    def __len__(self):
-        return self.image_num
-
-    @staticmethod
-    def get_test_info(sal_mode='e'):
-        if sal_mode == 'e':
-            image_root, image_source = './data/ECSSD/Imgs/', './data/ECSSD/test.lst'
-        elif sal_mode == 'p':
-            image_root, image_source = './data/PASCALS/Imgs/', './data/PASCALS/test.lst'
-        elif sal_mode == 'd':
-            image_root, image_source = './data/DUTOMRON/Imgs/', './data/DUTOMRON/test.lst'
-        elif sal_mode == 'h':
-            image_root, image_source = './data/HKU-IS/Imgs/', './data/HKU-IS/test.lst'
-        elif sal_mode == 's':
-            image_root, image_source = './data/SOD/Imgs/', './data/SOD/test.lst'
-        elif sal_mode == 't':
-            image_root, image_source = './data/DUTS-TE/Imgs/', './data/DUTS-TE/test.lst'
-        elif sal_mode == 'm_r':  # for speed test
-            image_root, image_source = './data/MSRA/Imgs_resized/', './data/MSRA/test_resized.lst'
-        else:
-            raise Exception(".................")
-        return image_root, image_source
-
-    pass
-
-
 class Solver(object):
 
-    def __init__(self, train_loader, epoch, batch_size, iter_size, epoch_save,
+    def __init__(self, train_loader, epoch, batch_size, iter_size,
                  save_folder, show_every, arch, pretrained_model, lr, wd):
         self.train_loader = train_loader
         self.iter_size = iter_size
         self.epoch = epoch
-        self.epoch_save = epoch_save
         self.batch_size = batch_size
         self.show_every = show_every
         self.save_folder = save_folder
@@ -206,9 +219,7 @@ class Solver(object):
                     pass
                 pass
 
-            if (epoch + 1) % self.epoch_save == 0:
-                torch.save(self.net.state_dict(), '{}/epoch_{}.pth'.format(self.save_folder, epoch + 1))
-                pass
+            torch.save(self.net.state_dict(), '{}/epoch_{}.pth'.format(self.save_folder, epoch + 1))
 
             if epoch in self.lr_decay_epoch:
                 self.lr = self.lr * 0.1
@@ -227,21 +238,61 @@ class Solver(object):
         net.load_state_dict(torch.load(model_path))
         net.eval()
 
-        mode_name = 'sal_fuse'
         time_s = time.time()
         img_num = len(test_loader)
         for i, data_batch in enumerate(test_loader):
+            if i % 100 == 0:
+                Tools.print("{} {}".format(i, img_num))
             images, name, im_size = data_batch['image'], data_batch['name'][0], np.asarray(data_batch['size'])
             with torch.no_grad():
-                images = torch.tensor(images).cuda()
-                preds = net(images)
-                pred = np.squeeze(torch.sigmoid(preds).cpu().data.numpy())
-                multi_fuse = 255 * pred
-                cv2.imwrite(os.path.join(result_fold, name[:-4] + '_' + mode_name + '.png'), multi_fuse)
+                images = torch.Tensor(images).cuda()
+                pred = net(images)
+                pred = np.squeeze(torch.sigmoid(pred).cpu().data.numpy()) * 255
+                cv2.imwrite(os.path.join(result_fold, name[:-4] + '.png'), pred)
         time_e = time.time()
         Tools.print('Speed: %f FPS' % (img_num / (time_e - time_s)))
         Tools.print('Test Done!')
         pass
+
+    @classmethod
+    def eval(cls, label_list, eval_list, th_num=100):
+        epoch_mae = 0.0
+        epoch_prec = np.zeros(shape=(th_num,)) + 1e-6
+        epoch_recall = np.zeros(shape=(th_num,)) + 1e-6
+        for i, (label_name, eval_name) in enumerate(zip(label_list, eval_list)):
+            # Tools.print("{} {}".format(label_name, eval_name))
+            if i % 100 == 0:
+                Tools.print("{} {}".format(i, len(label_list)))
+
+            im_label = np.asarray(Image.open(label_name).convert("L")) / 255
+            im_eval = np.asarray(Image.open(eval_name).convert("L")) / 255
+
+            mae = cls._eval_mae(im_eval, im_label)
+            prec, recall = cls._eval_pr(im_eval, im_label, th_num)
+            epoch_mae += mae
+            epoch_prec += prec
+            epoch_recall += recall
+            pass
+
+        avg_mae = epoch_mae/len(label_list)
+        avg_prec, avg_recall = epoch_prec/len(label_list), epoch_recall/len(label_list)
+        score4 = (1 + 0.3) * avg_prec * avg_recall / (0.3 * avg_prec + avg_recall)
+        return avg_mae, score4.max(), np.mean(score4)
+
+    @staticmethod
+    def _eval_mae(y_pred, y):
+        return np.abs(y_pred - y).mean()
+
+    @staticmethod
+    def _eval_pr(y_pred, y, th_num=100):
+        prec, recall = np.zeros(shape=(th_num,)), np.zeros(shape=(th_num,))
+        th_list = np.linspace(0, 1 - 1e-10, th_num)
+        for i in range(th_num):
+            y_temp = y_pred >= th_list[i]
+            tp = (y_temp * y).sum()
+            prec[i], recall[i] = tp / (y_temp.sum() + 1e-20), tp / y.sum()
+            pass
+        return prec, recall
 
     @staticmethod
     def _print_network(model, name):
@@ -272,34 +323,41 @@ class Solver(object):
 
 
 if __name__ == '__main__':
-    is_train = True
+    os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+
+    is_train = False
     if is_train:
         vgg_path = './pretrained/vgg16_20M.pth'
         resnet_path = './pretrained/resnet50_caffe.pth'
         arch = "resnet"  # vgg
         pretrained_model = resnet_path
 
-        n_color = 3
         lr, wd = 5e-5, 5e-5
-        epoch, epoch_save, batch_size, iter_size, show_every = 24, 3, 1, 10, 1
+        epoch, batch_size, iter_size, show_every = 24, 1, 10, 1000
         train_root, train_list = "./data/DUTS/DUTS-TR", "./data/DUTS/DUTS-TR/train_pair.lst"
         save_folder = Tools.new_dir('./results/run-0')
 
         dataset = ImageDataTrain(train_root, train_list)
         train_loader = data.DataLoader(dataset=dataset, batch_size=batch_size, shuffle=True, num_workers=1)
 
-        train = Solver(train_loader, epoch, batch_size, iter_size, epoch_save,
+        train = Solver(train_loader, epoch, batch_size, iter_size,
                        save_folder, show_every, arch, pretrained_model, lr, wd)
         train.train()
     else:
-        _sal_mode = "e"
+        _sal_mode = "t"
         _arch = "resnet"  # vgg
-        _model_path = None
-        _result_fold = Tools.new_dir("./results/test")
+        _model_path = './results/run-0/epoch_2.pth'
+        _result_fold = Tools.new_dir("./results/test/{}".format(_sal_mode))
 
         _dataset = ImageDataTest(_sal_mode)
         _test_loader = data.DataLoader(dataset=_dataset, batch_size=1, shuffle=False, num_workers=1)
-        Solver.test(_arch, _model_path, _test_loader, _result_fold)
+        # Solver.test(_arch, _model_path, _test_loader, _result_fold)
+
+        label_list = [os.path.join(_dataset.data_source["mask_root"],
+                                   "{}.png".format(os.path.splitext(_)[0])) for _ in _dataset.image_list]
+        eval_list = [os.path.join(_result_fold, "{}.png".format(os.path.splitext(_)[0])) for _ in _dataset.image_list]
+        mae, score_max, score_mean = Solver.eval(label_list, eval_list)
+        Tools.print("{} {} {}".format(mae, score_max, score_mean))
         pass
 
     pass
