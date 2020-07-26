@@ -242,7 +242,7 @@ class Solver(object):
         img_num = len(test_loader)
         for i, data_batch in enumerate(test_loader):
             if i % 100 == 0:
-                Tools.print("{} {}".format(i, img_num))
+                Tools.print("test {} {}".format(i, img_num))
             images, name, im_size = data_batch['image'], data_batch['name'][0], np.asarray(data_batch['size'])
             with torch.no_grad():
                 images = torch.Tensor(images).cuda()
@@ -255,14 +255,14 @@ class Solver(object):
         pass
 
     @classmethod
-    def eval(cls, label_list, eval_list, th_num=100):
+    def eval(cls, label_list, eval_list, th_num=25):
         epoch_mae = 0.0
         epoch_prec = np.zeros(shape=(th_num,)) + 1e-6
         epoch_recall = np.zeros(shape=(th_num,)) + 1e-6
         for i, (label_name, eval_name) in enumerate(zip(label_list, eval_list)):
             # Tools.print("{} {}".format(label_name, eval_name))
             if i % 100 == 0:
-                Tools.print("{} {}".format(i, len(label_list)))
+                Tools.print("eval {} {}".format(i, len(label_list)))
 
             im_label = np.asarray(Image.open(label_name).convert("L")) / 255
             im_eval = np.asarray(Image.open(eval_name).convert("L")) / 255
@@ -323,7 +323,7 @@ class Solver(object):
 
 
 if __name__ == '__main__':
-    os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+    os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
     is_train = True
     if is_train:
@@ -335,7 +335,7 @@ if __name__ == '__main__':
         lr, wd = 5e-5, 5e-4
         epoch, batch_size, iter_size, show_every = 24, 1, 10, 50
         train_root, train_list = "./data/DUTS/DUTS-TR", "./data/DUTS/DUTS-TR/train_pair.lst"
-        save_folder = Tools.new_dir('./results/run-0')
+        save_folder = Tools.new_dir('./results/run-2')
 
         dataset = ImageDataTrain(train_root, train_list)
         train_loader = data.DataLoader(dataset=dataset, batch_size=batch_size, shuffle=True, num_workers=1)
@@ -345,13 +345,28 @@ if __name__ == '__main__':
         train.train()
     else:
         """
-        2 2020-07-26 17:53:08 0.08843703606647393 0.7000265245508557 0.657429675139454
+        255 2020-07-26 22:33:14 0.03971972543414389 0.8738764894382811 0.8424517950128907
+        100 2020-07-26 22:47:52 0.03971972543414389 0.8738764894382811 0.8468806268761936
+        25  2020-07-26 22:51:50 0.03971972543414389 0.8737868732632593 0.8213803764712627
+        
+        1 2020-07-26 17:53:08 0.08843703606647393 0.7000265245508557 0.657429675139454
+        3 2020-07-26 19:33:30 0.08977659475688739 0.6454723543943603 0.6055244020114232
         5 2020-07-26 18:01:37 0.11535850382117954 0.6347916245952980 0.600528534811668
+        7 2020-07-26 19:01:44 0.10465414495699531 0.6701685216917728 0.638394675679639
+        9 2020-07-26 20:30:30 0.10863987442514024 0.5859493576637418 0.562887665548928
+        15 2020-07-26 23:01:57 0.10122363779350202 0.704460479319068 0.6559512122294118
+        17 2020-07-26 23:46:48 0.1019156799431587 0.7015232822555925 0.657601861944941
         """
         _sal_mode = "t"
         _arch = "resnet"  # vgg
-        _model_path = './results/run-0/epoch_5.pth'
-        _result_fold = Tools.new_dir("./results/test/{}".format(_sal_mode))
+
+        _run_name = "run-0"
+        _model_path = './results/{}/epoch_17.pth'.format(_run_name)
+
+        # _run_name = "run-1"
+        # _model_path = './results/{}/final.pth'.format(_run_name)
+
+        _result_fold = Tools.new_dir("./results/test/{}/{}".format(_run_name, _sal_mode))
 
         _dataset = ImageDataTest(_sal_mode)
         _test_loader = data.DataLoader(dataset=_dataset, batch_size=1, shuffle=False, num_workers=1)
