@@ -16,9 +16,8 @@ import torchvision.utils as vutils
 from alisuretool.Tools import Tools
 from collections import OrderedDict
 from torch.autograd import Variable
+from networks.poolnet import build_model
 from torch.nn import utils, functional as F
-from torchvision.transforms import functional as F
-from networks.poolnet import build_model, weights_init
 
 
 class ImageDataTrain(data.Dataset):
@@ -28,6 +27,7 @@ class ImageDataTrain(data.Dataset):
         self.sal_source = data_list
         with open(self.sal_source, 'r') as f:
             self.sal_list = [x.strip() for x in f.readlines()]
+        self.sal_list = self.sal_list[:20]
         self.sal_num = len(self.sal_list)
         pass
 
@@ -158,7 +158,9 @@ class Solver(object):
         pass
 
     def build_model(self):
-        net = build_model(self.arch).cuda()
+        net = build_model(self.arch)
+        if torch.cuda.is_available():
+            net = net.cuda()
         if self.pretrained_model:
             net.base.load_pretrained_model(torch.load(self.pretrained_model))
             pass
@@ -176,7 +178,9 @@ class Solver(object):
                 if (sal_image.size(2) != sal_label.size(2)) or (sal_image.size(3) != sal_label.size(3)):
                     Tools.print('IMAGE ERROR, PASSING```')
                     continue
-                sal_image, sal_label = torch.tensor(sal_image).cuda(), torch.tensor(sal_label).cuda()
+                sal_image, sal_label = torch.Tensor(sal_image), torch.Tensor(sal_label)
+                if torch.cuda.is_available():
+                    sal_image, sal_label = sal_image.cuda(), sal_label.cuda()
 
                 sal_pred = self.net(sal_image)
                 sal_loss_fuse = F.binary_cross_entropy_with_logits(sal_pred, sal_label, reduction='sum')
@@ -196,15 +200,15 @@ class Solver(object):
                     pass
 
                 if i % (self.show_every // self.batch_size) == 0:
-                    Tools.print('epoch: [%2d/%2d], iter:[%5d/%5d] || Sal:%10.4f' % (epoch, self.epoch, i,
-                                                                                    iter_num, r_sal_loss / (i + 1)))
-                    Tools.print('Learning rate: {}'.format(self.lr))
+                    Tools.print('epoch: [{:2d}/{:2d}], lr={:.6f} iter:[{:5d}/{:5d}] || Sal:{:10.4f}'.format(
+                        epoch, self.epoch, self.lr, i, iter_num, r_sal_loss / (i + 1)))
                     r_sal_loss = 0
                     pass
                 pass
 
             if (epoch + 1) % self.epoch_save == 0:
-                torch.save(self.net.state_dict(), '%s/models/epoch_%d.pth' % (self.save_folder, epoch + 1))
+                torch.save(self.net.state_dict(), '{}/epoch_{}.pth'.format(self.save_folder, epoch + 1))
+                pass
 
             if epoch in self.lr_decay_epoch:
                 self.lr = self.lr * 0.1
@@ -214,7 +218,6 @@ class Solver(object):
             pass
 
         torch.save(self.net.state_dict(), '{}/final.pth'.format(self.save_folder))
-
         pass
 
     @staticmethod
@@ -278,8 +281,8 @@ if __name__ == '__main__':
 
         n_color = 3
         lr, wd = 5e-5, 5e-5
-        eopch, epoch_save, batch_size, iter_size, show_every = 24, 3, 1, 10, 50
-        train_root, train_list = "", ""
+        epoch, epoch_save, batch_size, iter_size, show_every = 24, 3, 1, 10, 1
+        train_root, train_list = "./data/DUTS/DUTS-TR", "./data/DUTS/DUTS-TR/train_pair.lst"
         save_folder = Tools.new_dir('./results/run-0')
 
         dataset = ImageDataTrain(train_root, train_list)
