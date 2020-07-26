@@ -344,14 +344,18 @@ if __name__ == '__main__':
                        save_folder, show_every, arch, pretrained_model, lr, wd)
         train.train()
     else:
+        """
+        2 2020-07-26 17:53:08 0.08843703606647393 0.7000265245508557 0.657429675139454
+        5 2020-07-26 18:01:37 0.11535850382117954 0.6347916245952980 0.600528534811668
+        """
         _sal_mode = "t"
         _arch = "resnet"  # vgg
-        _model_path = './results/run-0/epoch_2.pth'
+        _model_path = './results/run-0/epoch_5.pth'
         _result_fold = Tools.new_dir("./results/test/{}".format(_sal_mode))
 
         _dataset = ImageDataTest(_sal_mode)
         _test_loader = data.DataLoader(dataset=_dataset, batch_size=1, shuffle=False, num_workers=1)
-        # Solver.test(_arch, _model_path, _test_loader, _result_fold)
+        Solver.test(_arch, _model_path, _test_loader, _result_fold)
 
         label_list = [os.path.join(_dataset.data_source["mask_root"],
                                    "{}.png".format(os.path.splitext(_)[0])) for _ in _dataset.image_list]
