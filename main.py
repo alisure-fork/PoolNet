@@ -6,8 +6,10 @@ import torch
 import random
 import numbers
 import numpy as np
+from torch import nn
 from PIL import Image
 import scipy.misc as sm
+from torch.nn import init
 from torch.optim import Adam
 from torch.utils import data
 from torch.backends import cudnn
@@ -174,6 +176,8 @@ class Solver(object):
         net = build_model(self.arch)
         if torch.cuda.is_available():
             net = net.cuda()
+        net.eval()  # use_global_stats = True
+        net.apply(self.weights_init)
         if self.pretrained_model:
             net.base.load_pretrained_model(torch.load(self.pretrained_model))
             pass
@@ -214,7 +218,7 @@ class Solver(object):
 
                 if i % (self.show_every // self.batch_size) == 0:
                     Tools.print('epoch: [{:2d}/{:2d}], lr={:.6f} iter:[{:5d}/{:5d}] || Sal:{:10.4f}'.format(
-                        epoch, self.epoch, self.lr, i, iter_num, r_sal_loss / (i + 1)))
+                        epoch, self.epoch, self.lr, i, iter_num, r_sal_loss / self.show_every))
                     r_sal_loss = 0
                     pass
                 pass
@@ -305,6 +309,15 @@ class Solver(object):
         pass
 
     @staticmethod
+    def weights_init(m):
+        if isinstance(m, nn.Conv2d):
+            m.weight.data.normal_(0, 0.01)
+            if m.bias is not None:
+                m.bias.data.zero_()
+            pass
+        pass
+
+    @staticmethod
     def bce2d(input, target, reduction=None):
         assert (input.size() == target.size())
         pos = torch.eq(target, 1).float()
@@ -323,9 +336,9 @@ class Solver(object):
 
 
 if __name__ == '__main__':
-    os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+    os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
-    is_train = True
+    is_train = None
     if is_train:
         vgg_path = './pretrained/vgg16_20M.pth'
         resnet_path = './pretrained/resnet50_caffe.pth'
@@ -335,7 +348,7 @@ if __name__ == '__main__':
         lr, wd = 5e-5, 5e-4
         epoch, batch_size, iter_size, show_every = 24, 1, 10, 50
         train_root, train_list = "./data/DUTS/DUTS-TR", "./data/DUTS/DUTS-TR/train_pair.lst"
-        save_folder = Tools.new_dir('./results/run-2')
+        save_folder = Tools.new_dir('./results/run-3')
 
         dataset = ImageDataTrain(train_root, train_list)
         train_loader = data.DataLoader(dataset=dataset, batch_size=batch_size, shuffle=True, num_workers=1)
@@ -344,27 +357,39 @@ if __name__ == '__main__':
                        save_folder, show_every, arch, pretrained_model, lr, wd)
         train.train()
     else:
-        """
-        255 2020-07-26 22:33:14 0.03971972543414389 0.8738764894382811 0.8424517950128907
-        100 2020-07-26 22:47:52 0.03971972543414389 0.8738764894382811 0.8468806268761936
-        25  2020-07-26 22:51:50 0.03971972543414389 0.8737868732632593 0.8213803764712627
-        
-        1 2020-07-26 17:53:08 0.08843703606647393 0.7000265245508557 0.657429675139454
-        3 2020-07-26 19:33:30 0.08977659475688739 0.6454723543943603 0.6055244020114232
-        5 2020-07-26 18:01:37 0.11535850382117954 0.6347916245952980 0.600528534811668
-        7 2020-07-26 19:01:44 0.10465414495699531 0.6701685216917728 0.638394675679639
-        9 2020-07-26 20:30:30 0.10863987442514024 0.5859493576637418 0.562887665548928
-        15 2020-07-26 23:01:57 0.10122363779350202 0.704460479319068 0.6559512122294118
-        17 2020-07-26 23:46:48 0.1019156799431587 0.7015232822555925 0.657601861944941
-        """
         _sal_mode = "t"
         _arch = "resnet"  # vgg
 
-        _run_name = "run-0"
-        _model_path = './results/{}/epoch_17.pth'.format(_run_name)
+        """
+        5  2020-07-27 20:36:31 0.05241527077488283 0.8517848012525331 0.7765582209583028
+        8  2020-07-27 22:04:46 0.05557426018719863 0.8428498176896624 0.7686088589870113
+        11 2020-07-27 23:15:37 0.04917725432021936 0.8411658923151173 0.7776159663247798
+        15 2020-07-27 23:15:37 0.04917725432021936 0.8411658923151173 0.7776159663247798
+        20 2020-07-28 09:40:24 0.04092316066805533 0.8725635949199492 0.8163053439274988
+        24 2020-07-28 09:55:16 0.03904340699106322 0.8733492245180865 0.8224958606030924
+        """
+        _run_name = "run-3"
+        _model_path = './results/{}/epoch_24.pth'.format(_run_name)
 
+        """
+        25  2020-07-26 22:51:50 0.03971972543414389 0.8737868732632593 0.8213803764712627
+        100 2020-07-26 22:47:52 0.03971972543414389 0.8738764894382811 0.8468806268761936
+        255 2020-07-26 22:33:14 0.03971972543414389 0.8738764894382811 0.8424517950128907
+        """
         # _run_name = "run-1"
         # _model_path = './results/{}/final.pth'.format(_run_name)
+
+        """
+        25 3  2020-07-27 12:03:38 0.06376578693983508 0.8278987273732552 0.7348711963468076
+        25 6  2020-07-27 13:41:31 0.04917166755051023 0.8480604534467249 0.7775842165171788
+        25 9  2020-07-27 17:05:10 0.05852850207356820 0.8406266697332665 0.7539343844430271
+        25 12 2020-07-27 17:10:40 0.04440355232682816 0.8586897475680151 0.8001728781806375
+        25 18 2020-07-27 20:34:31 0.04070674450214185 0.8658416389854309 0.8128917546451175
+        25 21 2020-07-27 21:01:27 0.04003524491530578 0.8720888987227631 0.8193354597611868
+        25 24 2020-07-27 21:54:42 0.03959657807003913 0.8703543194197272 0.8210207443113242
+        """
+        # _run_name = "run-11"
+        # _model_path = '/mnt/4T/ALISURE/SOD/Origin/PoolNet/results/run-1/models/epoch_24.pth'
 
         _result_fold = Tools.new_dir("./results/test/{}/{}".format(_run_name, _sal_mode))
 

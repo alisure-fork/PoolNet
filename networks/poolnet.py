@@ -118,7 +118,6 @@ class PoolNet(nn.Module):
             pass
         self.deep_pool = nn.ModuleList(deep_pool_layers)
         self.score = score_layers
-        self.apply(self.weights_init)
         pass
 
     def forward(self, x):
@@ -136,15 +135,6 @@ class PoolNet(nn.Module):
         merge = self.deep_pool[-1](merge)  # A
         merge = self.score(merge, x_size)
         return merge
-
-    @staticmethod
-    def weights_init(m):
-        if isinstance(m, nn.Conv2d):
-            m.weight.data.normal_(0, 0.01)
-            if m.bias is not None:
-                m.bias.data.zero_()
-            pass
-        pass
 
     pass
 
