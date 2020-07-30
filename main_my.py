@@ -18,7 +18,6 @@ import torchvision.utils as vutils
 from alisuretool.Tools import Tools
 from collections import OrderedDict
 from torch.autograd import Variable
-from networks.poolnet import build_model
 from torch.nn import utils, functional as F
 
 
@@ -149,10 +148,207 @@ class ImageDataTest(data.Dataset):
     pass
 
 
+class VGG16(nn.Module):
+    def __init__(self):
+        super(VGG16, self).__init__()
+        self.cfg = [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'M', 512, 512, 512, 'M', 512, 512, 512, 'M']
+        self.extract = [8, 15, 22, 29]  # [3, 8, 15, 22, 29]
+        self.base = nn.ModuleList(self.vgg(self.cfg, 3))
+
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                m.weight.data.normal_(0, 0.01)
+            elif isinstance(m, nn.BatchNorm2d):
+                m.weight.data.fill_(1)
+                m.bias.data.zero_()
+        pass
+
+    @staticmethod
+    def vgg(cfg, i, batch_norm=False):
+        layers = []
+        in_channels = i
+        stage = 1
+        for v in cfg:
+            if v == 'M':
+                stage += 1
+                if stage == 6:
+                    layers += [nn.MaxPool2d(kernel_size=3, stride=1, padding=1)]
+                else:
+                    layers += [nn.MaxPool2d(kernel_size=3, stride=2, padding=1)]
+            else:
+                if stage == 6:
+                    conv2d = nn.Conv2d(in_channels, v, kernel_size=3, padding=1)
+                else:
+                    conv2d = nn.Conv2d(in_channels, v, kernel_size=3, padding=1)
+                if batch_norm:
+                    layers += [conv2d, nn.BatchNorm2d(v), nn.ReLU(inplace=True)]
+                else:
+                    layers += [conv2d, nn.ReLU(inplace=True)]
+                in_channels = v
+        return layers
+
+    def load_pretrained_model(self, model):
+        self.base.load_state_dict(model, strict=False)
+        pass
+
+    def forward(self, x):
+        tmp_x = []
+        for k in range(len(self.base)):
+            x = self.base[k](x)
+            if k in self.extract:
+                tmp_x.append(x)
+        return tmp_x
+
+    pass
+
+
+class VGG16Locate(nn.Module):
+
+    def __init__(self):
+        super(VGG16Locate, self).__init__()
+        self.vgg16 = VGG16()
+        self.in_planes = 512
+        self.out_planes = [512, 256, 128]
+
+        ppms, infos = [], []
+        for ii in [1, 3, 5]:
+            ppms.append(nn.Sequential(nn.AdaptiveAvgPool2d(ii), nn.Conv2d(self.in_planes, self.in_planes,
+                                                                          1, 1, bias=False), nn.ReLU(inplace=True)))
+        self.ppms = nn.ModuleList(ppms)
+
+        self.ppm_cat = nn.Sequential(nn.Conv2d(self.in_planes * 4, self.in_planes, 3, 1, 1, bias=False),
+                                     nn.ReLU(inplace=True))
+        for ii in self.out_planes:
+            infos.append(nn.Sequential(nn.Conv2d(self.in_planes, ii, 3, 1, 1, bias=False), nn.ReLU(inplace=True)))
+        self.infos = nn.ModuleList(infos)
+
+        self.weight_init(self.modules())
+        pass
+
+    @staticmethod
+    def weight_init(modules):
+        for m in modules:
+            if isinstance(m, nn.Conv2d):
+                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+                m.weight.data.normal_(0, 0.01)
+            elif isinstance(m, nn.BatchNorm2d):
+                m.weight.data.fill_(1)
+                m.bias.data.zero_()
+            pass
+        pass
+
+    def load_pretrained_model(self, model):
+        self.vgg16.load_pretrained_model(model)
+        pass
+
+    def forward(self, x):
+        x_size = x.size()[2:]
+        xs = self.vgg16(x)
+
+        xls = [xs[-1]]
+        for k in range(len(self.ppms)):
+            xls.append(F.interpolate(self.ppms[k](xs[-1]), xs[-1].size()[2:], mode='bilinear', align_corners=True))
+        xls = self.ppm_cat(torch.cat(xls, dim=1))
+        infos = []
+        for k in range(len(self.infos)):
+            infos.append(self.infos[k](F.interpolate(xls, xs[len(self.infos) - 1 - k].size()[2:], mode='bilinear', align_corners=True)))
+
+        return xs, infos
+
+    pass
+
+
+class DeepPoolLayer(nn.Module):
+
+    def __init__(self, k, k_out, need_x2, need_fuse):
+        super(DeepPoolLayer, self).__init__()
+        self.pools_sizes = [2,4,8]
+        self.need_x2 = need_x2
+        self.need_fuse = need_fuse
+        pools, convs = [],[]
+        for i in self.pools_sizes:
+            pools.append(nn.AvgPool2d(kernel_size=i, stride=i))
+            convs.append(nn.Conv2d(k, k, 3, 1, 1, bias=False))
+        self.pools = nn.ModuleList(pools)
+        self.convs = nn.ModuleList(convs)
+        self.relu = nn.ReLU()
+        self.conv_sum = nn.Conv2d(k, k_out, 3, 1, 1, bias=False)
+        if self.need_fuse:
+            self.conv_sum_c = nn.Conv2d(k_out, k_out, 3, 1, 1, bias=False)
+        pass
+
+    def forward(self, x, x2=None, x3=None):
+        x_size = x.size()
+        resl = x
+        for i in range(len(self.pools_sizes)):
+            y = self.convs[i](self.pools[i](x))
+            resl = torch.add(resl, F.interpolate(y, x_size[2:], mode='bilinear', align_corners=True))
+        resl = self.relu(resl)
+        if self.need_x2:
+            resl = F.interpolate(resl, x2.size()[2:], mode='bilinear', align_corners=True)
+        resl = self.conv_sum(resl)
+        if self.need_fuse:
+            resl = self.conv_sum_c(torch.add(torch.add(resl, x2), x3))
+        return resl
+
+    pass
+
+
+class ScoreLayer(nn.Module):
+
+    def __init__(self, k):
+        super(ScoreLayer, self).__init__()
+        self.score = nn.Conv2d(k, 1, 1, 1)
+        pass
+
+    def forward(self, x, x_size=None):
+        x = self.score(x)
+        if x_size is not None:
+            x = F.interpolate(x, x_size[2:], mode='bilinear', align_corners=True)
+        return x
+
+    pass
+
+
+class PoolNet(nn.Module):
+
+    def __init__(self):
+        super(PoolNet, self).__init__()
+        self.base = VGG16Locate()
+
+        config = {'deep_pool': [[512, 512, 256, 128], [512, 256, 128, 128],
+                                [True, True, True, False], [True, True, True, False]], 'score': 128}
+        deep_pool = []
+        for i in range(len(config['deep_pool'][0])):
+            deep_pool += [DeepPoolLayer(config['deep_pool'][0][i], config['deep_pool'][1][i],
+                                        config['deep_pool'][2][i], config['deep_pool'][3][i])]
+            pass
+
+        self.deep_pool = nn.ModuleList(deep_pool)
+        self.score = ScoreLayer(config['score'])
+
+        VGG16Locate.weight_init(self.modules())
+        pass
+
+    def forward(self, x):
+        x_size = x.size()
+        conv2merge, infos = self.base(x)
+        conv2merge = conv2merge[::-1]
+
+        merge = self.deep_pool[0](conv2merge[0], conv2merge[1], infos[0])  # A + F
+        for k in range(1, len(conv2merge)-1):
+            merge = self.deep_pool[k](merge, conv2merge[k+1], infos[k])  # A + F
+
+        merge = self.deep_pool[-1](merge)  # A
+        merge = self.score(merge, x_size)
+        return merge
+
+    pass
+
+
 class Solver(object):
 
-    def __init__(self, train_loader, epoch, batch_size, iter_size,
-                 save_folder, show_every, arch, pretrained_model, lr, wd):
+    def __init__(self, train_loader, epoch, batch_size, iter_size, save_folder, show_every, pretrained_model, lr, wd):
         self.train_loader = train_loader
         self.iter_size = iter_size
         self.epoch = epoch
@@ -162,27 +358,17 @@ class Solver(object):
 
         self.pretrained_model = pretrained_model
 
-        self.arch = arch
         self.wd = wd
         self.lr = lr
         self.lr_decay_epoch = [15, ]
 
         self.net = self.build_model()
-        # self.optimizer = Adam(filter(lambda p: p.requires_grad, self.net.parameters()),
-        #                       lr=self.lr, weight_decay=self.wd)
         self.optimizer = Adam(self.net.parameters(), lr=self.lr, weight_decay=self.wd)
         pass
 
     def build_model(self):
-        net = build_model(self.arch)
-        if torch.cuda.is_available():
-            net = net.cuda()
+        net = PoolNet().cuda()
 
-        # BN层中有个参数use_global_stats，它表示是否使用caffe内部的均值和方差。
-        # 训练模型的时候，将BN层use_global_stats设置为false；测试的时候设置为true，不然训练的时候会报nan或者模型不收敛。
-        # net.eval()  # use_global_stats = True
-
-        net.apply(self.weights_init)
         if self.pretrained_model:
             net.base.load_pretrained_model(torch.load(self.pretrained_model))
             pass
@@ -233,8 +419,6 @@ class Solver(object):
 
             if epoch in self.lr_decay_epoch:
                 self.lr = self.lr * 0.1
-                # self.optimizer = Adam(filter(lambda p: p.requires_grad, self.net.parameters()),
-                #                       lr=self.lr, weight_decay=self.wd)
                 self.optimizer = Adam(self.net.parameters(), lr=self.lr, weight_decay=self.wd)
                 pass
             pass
@@ -243,9 +427,9 @@ class Solver(object):
         pass
 
     @staticmethod
-    def test(arch, model_path, test_loader, result_fold):
+    def test(model_path, test_loader, result_fold):
         Tools.print('Loading trained model from {}'.format(model_path))
-        net = build_model(arch).cuda()
+        net = PoolNet().cuda()
         net.load_state_dict(torch.load(model_path))
         net.eval()
 
@@ -315,116 +499,41 @@ class Solver(object):
         Tools.print("The number of parameters: {}".format(num_params))
         pass
 
-    @staticmethod
-    def weights_init(m):
-        if isinstance(m, nn.Conv2d):
-            m.weight.data.normal_(0, 0.01)
-            if m.bias is not None:
-                m.bias.data.zero_()
-            pass
-        pass
+    pass
 
-    @staticmethod
-    def bce2d(input, target, reduction=None):
-        assert (input.size() == target.size())
-        pos = torch.eq(target, 1).float()
-        neg = torch.eq(target, 0).float()
 
-        num_pos = torch.sum(pos)
-        num_neg = torch.sum(neg)
-        num_total = num_pos + num_neg
+def my_train(run_name="run-6", pretrained_model='./pretrained/vgg16_20M.pth', lr=5e-5, wd=5e-4):
+    epoch, batch_size, iter_size, show_every = 24, 1, 10, 50
+    train_root, train_list = "./data/DUTS/DUTS-TR", "./data/DUTS/DUTS-TR/train_pair.lst"
+    save_folder = Tools.new_dir('./results/{}'.format(run_name))
 
-        alpha = num_neg / num_total
-        beta = 1.1 * num_pos / num_total
-        weights = alpha * pos + beta * neg
-        return F.binary_cross_entropy_with_logits(input, target, weights, reduction=reduction)
+    dataset = ImageDataTrain(train_root, train_list)
+    train_loader = data.DataLoader(dataset=dataset, batch_size=batch_size, shuffle=True, num_workers=1)
 
+    train = Solver(train_loader, epoch, batch_size, iter_size, save_folder, show_every, pretrained_model, lr, wd)
+    train.train()
+    pass
+
+
+def my_test(run_name="run-6", sal_mode="t", model_path='./results/run-6/epoch_22.pth'):
+    result_fold = Tools.new_dir("./results/test/{}/{}".format(run_name, sal_mode))
+
+    dataset = ImageDataTest(sal_mode)
+    test_loader = data.DataLoader(dataset=dataset, batch_size=1, shuffle=False, num_workers=1)
+    Solver.test(model_path, test_loader, result_fold)
+
+    label_list = [os.path.join(dataset.data_source["mask_root"],
+                               "{}.png".format(os.path.splitext(_)[0])) for _ in dataset.image_list]
+    eval_list = [os.path.join(result_fold, "{}.png".format(os.path.splitext(_)[0])) for _ in dataset.image_list]
+    mae, score_max, score_mean = Solver.eval(label_list, eval_list)
+    Tools.print("{} {} {}".format(mae, score_max, score_mean))
     pass
 
 
 if __name__ == '__main__':
     os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
-    is_train = False
-    if is_train:
-        vgg_path = './pretrained/vgg16_20M.pth'
-        resnet_path = './pretrained/resnet50_caffe.pth'
-        # arch = "resnet"  # vgg
-        arch = "vgg"  # resnet
-        pretrained_model = vgg_path
-
-        lr, wd = 5e-5, 5e-4
-        epoch, batch_size, iter_size, show_every = 24, 1, 10, 50
-        train_root, train_list = "./data/DUTS/DUTS-TR", "./data/DUTS/DUTS-TR/train_pair.lst"
-        save_folder = Tools.new_dir('./results/run-5')
-
-        dataset = ImageDataTrain(train_root, train_list)
-        train_loader = data.DataLoader(dataset=dataset, batch_size=batch_size, shuffle=True, num_workers=1)
-
-        train = Solver(train_loader, epoch, batch_size, iter_size,
-                       save_folder, show_every, arch, pretrained_model, lr, wd)
-        train.train()
-    else:
-        _sal_mode = "t"
-        # _arch = "resnet"  # vgg
-        _arch = "vgg"  # resnet
-
-        """
-        5  2020-07-27 20:36:31 0.05241527077488283 0.8517848012525331 0.7765582209583028
-        8  2020-07-27 22:04:46 0.05557426018719863 0.8428498176896624 0.7686088589870113
-        11 2020-07-27 23:15:37 0.04917725432021936 0.8411658923151173 0.7776159663247798
-        15 2020-07-27 23:15:37 0.04917725432021936 0.8411658923151173 0.7776159663247798
-        20 2020-07-28 09:40:24 0.04092316066805533 0.8725635949199492 0.8163053439274988
-        24 2020-07-28 09:55:16 0.03904340699106322 0.8733492245180865 0.8224958606030924
-        """
-        # _run_name = "run-3"
-        # _model_path = './results/{}/epoch_24.pth'.format(_run_name)
-
-        """
-        25  2020-07-26 22:51:50 0.03971972543414389 0.8737868732632593 0.8213803764712627
-        100 2020-07-26 22:47:52 0.03971972543414389 0.8738764894382811 0.8468806268761936
-        255 2020-07-26 22:33:14 0.03971972543414389 0.8738764894382811 0.8424517950128907
-        """
-        # _run_name = "run-1"
-        # _model_path = './results/{}/final.pth'.format(_run_name)
-
-        """
-        25 3  2020-07-27 12:03:38 0.06376578693983508 0.8278987273732552 0.7348711963468076
-        25 6  2020-07-27 13:41:31 0.04917166755051023 0.8480604534467249 0.7775842165171788
-        25 9  2020-07-27 17:05:10 0.05852850207356820 0.8406266697332665 0.7539343844430271
-        25 12 2020-07-27 17:10:40 0.04440355232682816 0.8586897475680151 0.8001728781806375
-        25 18 2020-07-27 20:34:31 0.04070674450214185 0.8658416389854309 0.8128917546451175
-        25 21 2020-07-27 21:01:27 0.04003524491530578 0.8720888987227631 0.8193354597611868
-        25 24 2020-07-27 21:54:42 0.03959657807003913 0.8703543194197272 0.8210207443113242
-        """
-        # _run_name = "run-11"
-        # _model_path = '/mnt/4T/ALISURE/SOD/Origin/PoolNet/results/run-1/models/epoch_24.pth'
-
-        """
-        run-5  3 2020-07-30 00:03:01 0.0656377681324746 0.8417086092797482 0.7330878868388879
-        run-5 15 2020-07-30 10:45:20 0.04942686398995049 0.8526955857102985 0.7887080212100115
-        run-5 17 2020-07-30 11:19:12 0.047119682457788255 0.8633915210319467 0.7994033242058418
-        run-5 19 2020-07-30 12:48:44 0.04496994921689235 0.8656156463594663 0.8072721775143579
-        
-        run-6 3 2020-07-30 00:32:50 0.07323288835800319 0.8359262430030154 0.718789083594987
-        run-6 15 2020-07-30 09:47:16 0.05157297575693129 0.8596404444467556 0.7892124810967894
-        run-6 19 2020-07-30 13:00:25 0.04514415867812501 0.8659445354784423 0.8070121604720351
-        run-6 22 2020-07-30 15:22:04 0.04307363189392385 0.8680233392556596 0.813105198620217
-        """
-        _run_name = "run-6"
-        _model_path = './results/{}/epoch_22.pth'.format(_run_name)
-
-        _result_fold = Tools.new_dir("./results/test/{}/{}".format(_run_name, _sal_mode))
-
-        _dataset = ImageDataTest(_sal_mode)
-        _test_loader = data.DataLoader(dataset=_dataset, batch_size=1, shuffle=False, num_workers=1)
-        Solver.test(_arch, _model_path, _test_loader, _result_fold)
-
-        label_list = [os.path.join(_dataset.data_source["mask_root"],
-                                   "{}.png".format(os.path.splitext(_)[0])) for _ in _dataset.image_list]
-        eval_list = [os.path.join(_result_fold, "{}.png".format(os.path.splitext(_)[0])) for _ in _dataset.image_list]
-        mae, score_max, score_mean = Solver.eval(label_list, eval_list)
-        Tools.print("{} {} {}".format(mae, score_max, score_mean))
-        pass
-
+    _run_name = "run-6"
+    # my_train(run_name=_run_name, pretrained_model='./pretrained/vgg16_20M.pth', lr=5e-5, wd=5e-4)
+    my_test(run_name=_run_name, sal_mode="t", model_path='./results/{}/epoch_23.pth'.format(_run_name))
     pass
