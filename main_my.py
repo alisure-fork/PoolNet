@@ -530,10 +530,28 @@ def my_test(run_name="run-6", sal_mode="t", model_path='./results/run-6/epoch_22
     pass
 
 
+"""
+#  3 2020-07-30 20:02:47 0.10483588910803267 0.8113900467163516 0.6678828142162999
+# Max F-measre: 0.819712 # Precision:    0.864221 # Recall:       0.699606 # MAE:          0.104815
+# 11 2020-07-30 20:47:48 0.05963944563820783 0.8347614190184267 0.756751045117701
+# Max F-measre: 0.848795 # Precision:    0.889131 # Recall:       0.737300 # MAE:          0.0596364
+# 12 2020-07-30 21:08:52 0.05539921863422358 0.8515504847969809 0.7707253474111654
+# Max F-measre: 0.862992 # Precision:    0.898916 # Recall:       0.761548 # MAE:          0.0553957
+# 14 2020-07-30 22:08:11 0.053452942576803254 0.8535626797360707 0.7870600922162752
+# Max F-measre: 0.858931 # Precision:    0.891694 # Recall:       0.765213 # MAE:          0.0534508
+# 16 2020-07-30 22:59:10 0.05543037568761575 0.8464022109947122 0.7790630094092397
+# Max F-measre: 0.851753 # Precision:    0.878842 # Recall:       0.772393 # MAE:          0.0554272
+# 19 2020-07-30 23:55:47 0.04404336020844739 0.86804850494036 0.8110303393090958
+# Max F-measre: 0.874382 # Precision:    0.899922 # Recall:       0.798812 # MAE:          0.0440422
+# 24 2020-07-31 09:43:03 0.042107617182937034 0.870920497128008 0.8176596900025891
+# Max F-measre: 0.877171 # Precision:    0.902743 # Recall:       0.801492 # MAE:          0.0421069
+"""
+
+
 if __name__ == '__main__':
     os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
-    _run_name = "run-6"
-    # my_train(run_name=_run_name, pretrained_model='./pretrained/vgg16_20M.pth', lr=5e-5, wd=5e-4)
-    my_test(run_name=_run_name, sal_mode="t", model_path='./results/{}/epoch_23.pth'.format(_run_name))
+    _run_name = "run-8"
+    my_train(run_name=_run_name, pretrained_model='./pretrained/vgg16_20M.pth', lr=5e-5, wd=5e-4)
+    # my_test(run_name=_run_name, sal_mode="t", model_path='./results/{}/epoch_24.pth'.format(_run_name))
     pass
