@@ -52,11 +52,12 @@ class RandomHorizontalFlip(object):
 
 class ImageDataTrain(data.Dataset):
 
-    def __init__(self, data_root, data_list, image_size=None):
+    def __init__(self, data_root, data_list, image_size=None, batch_size=8):
         self.sal_root = data_root
         self.sal_source = data_list
         with open(self.sal_source, 'r') as f:
             self.sal_list = [x.strip() for x in f.readlines()]
+        self.sal_list = self.sal_list[0: len(self.sal_list) // batch_size * batch_size]
         self.sal_num = len(self.sal_list)
 
         if image_size is not None:
@@ -155,13 +156,40 @@ class ImageDataTest(data.Dataset):
     pass
 
 
+class ConvBNReLU(nn.Module):
+
+    def __init__(self, cin, cout, stride=1, ks=3, has_relu=True, has_bn=True, bias=True):
+        super().__init__()
+        self.has_relu = has_relu
+        self.has_bn = has_bn
+
+        self.conv = nn.Conv2d(cin, cout, kernel_size=ks, stride=stride, padding=ks//2, bias=bias)
+        if self.has_bn:
+            self.bn = nn.BatchNorm2d(cout)
+        if self.has_relu:
+            self.relu = nn.ReLU(inplace=True)
+        pass
+
+    def forward(self, x):
+        out = self.conv(x)
+        if self.has_bn:
+            out = self.bn(out)
+        if self.has_relu:
+            out = self.relu(out)
+        return out
+
+    pass
+
+
 class VGG16(nn.Module):
 
-    def __init__(self):
+    def __init__(self, has_bn=True):
         super(VGG16, self).__init__()
         self.cfg = [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'M', 512, 512, 512, 'M', 512, 512, 512, 'M']
-        self.extract = [8, 15, 22, 29]  # [3, 8, 15, 22, 29]
-        self.features = self.vgg(self.cfg)
+        self.extract = [12, 22, 32, 42] if has_bn else [8, 15, 22, 29]
+        self.features = self.vgg(self.cfg, batch_norm=has_bn)
+
+        self.pretrained_model = "./pretrained/vgg16_bn-6c64b313.pth" if has_bn else "./pretrained/vgg16-397923af.pth"
 
         self.weight_init(self.modules())
         pass
@@ -203,8 +231,8 @@ class VGG16(nn.Module):
             pass
         pass
 
-    def load_pretrained_model(self, pretrained_model="./pretrained/vgg16-397923af.pth"):
-        self.load_state_dict(torch.load(pretrained_model), strict=False)
+    def load_pretrained_model(self):
+        self.load_state_dict(torch.load(self.pretrained_model), strict=False)
         pass
 
     pass
@@ -212,20 +240,20 @@ class VGG16(nn.Module):
 
 class DeepPoolLayer(nn.Module):
 
-    def __init__(self, k, k_out, is_not_last):
+    def __init__(self, k, k_out, is_not_last, has_bn=True):
         super(DeepPoolLayer, self).__init__()
         self.is_not_last = is_not_last
 
         self.pool2 = nn.AvgPool2d(kernel_size=2, stride=2)
         self.pool4 = nn.AvgPool2d(kernel_size=4, stride=4)
         self.pool8 = nn.AvgPool2d(kernel_size=8, stride=8)
-        self.conv1 = nn.Conv2d(k, k, 3, 1, 1, bias=False)
-        self.conv2 = nn.Conv2d(k, k, 3, 1, 1, bias=False)
-        self.conv3 = nn.Conv2d(k, k, 3, 1, 1, bias=False)
+        self.conv1 = ConvBNReLU(k, k, ks=3, stride=1, has_relu=False, has_bn=has_bn, bias=False)
+        self.conv2 = ConvBNReLU(k, k, ks=3, stride=1, has_relu=False, has_bn=has_bn, bias=False)
+        self.conv3 = ConvBNReLU(k, k, ks=3, stride=1, has_relu=False, has_bn=has_bn, bias=False)
 
-        self.conv_sum = nn.Conv2d(k, k_out, 3, 1, 1, bias=False)
+        self.conv_sum = ConvBNReLU(k, k_out, ks=3, stride=1, has_relu=False, has_bn=has_bn, bias=False)
         if self.is_not_last:
-            self.conv_sum_c = nn.Conv2d(k_out, k_out, 3, 1, 1, bias=False)
+            self.conv_sum_c = ConvBNReLU(k_out, k_out, ks=3, stride=1, has_relu=False, has_bn=has_bn, bias=False)
         self.relu = nn.ReLU()
         pass
 
@@ -254,30 +282,33 @@ class DeepPoolLayer(nn.Module):
 
 class PoolNet(nn.Module):
 
-    def __init__(self):
+    def __init__(self, has_bn=True):
         super(PoolNet, self).__init__()
         # BASE
-        self.vgg16 = VGG16()
+        self.vgg16 = VGG16(has_bn=has_bn)
 
         # PPM
         ind = 512
-        self.ppm1 = nn.Sequential(nn.AdaptiveAvgPool2d(1), nn.Conv2d(ind, ind, 1, 1, bias=False), nn.ReLU(inplace=True))
-        self.ppm2 = nn.Sequential(nn.AdaptiveAvgPool2d(3), nn.Conv2d(ind, ind, 1, 1, bias=False), nn.ReLU(inplace=True))
-        self.ppm3 = nn.Sequential(nn.AdaptiveAvgPool2d(4), nn.Conv2d(ind, ind, 1, 1, bias=False), nn.ReLU(inplace=True))
-        self.ppm_cat = nn.Sequential(nn.Conv2d(ind * 4, ind, 3, 1, 1, bias=False), nn.ReLU(inplace=True))
+        self.ppm1 = nn.Sequential(nn.AdaptiveAvgPool2d(1),
+                                  ConvBNReLU(ind, ind, ks=1, stride=1, has_relu=True, has_bn=has_bn, bias=False))
+        self.ppm2 = nn.Sequential(nn.AdaptiveAvgPool2d(3),
+                                  ConvBNReLU(ind, ind, ks=1, stride=1, has_relu=True, has_bn=has_bn, bias=False))
+        self.ppm3 = nn.Sequential(nn.AdaptiveAvgPool2d(4),
+                                  ConvBNReLU(ind, ind, ks=1, stride=1, has_relu=True, has_bn=has_bn, bias=False))
+        self.ppm_cat = ConvBNReLU(ind * 4, ind, ks=3, stride=1, has_relu=True, has_bn=has_bn, bias=False)
 
         # INFO
         out_dim = [128, 256, 512]
-        self.info1 = nn.Sequential(nn.Conv2d(ind, out_dim[0], 3, 1, 1, bias=False), nn.ReLU(inplace=True))
-        self.info2 = nn.Sequential(nn.Conv2d(ind, out_dim[1], 3, 1, 1, bias=False), nn.ReLU(inplace=True))
-        self.info3 = nn.Sequential(nn.Conv2d(ind, out_dim[2], 3, 1, 1, bias=False), nn.ReLU(inplace=True))
+        self.info1 = ConvBNReLU(ind, out_dim[0], ks=3, stride=1, has_relu=True, has_bn=has_bn, bias=False)
+        self.info2 = ConvBNReLU(ind, out_dim[1], ks=3, stride=1, has_relu=True, has_bn=has_bn, bias=False)
+        self.info3 = ConvBNReLU(ind, out_dim[2], ks=3, stride=1, has_relu=True, has_bn=has_bn, bias=False)
 
         # DEEP POOL
         deep_pool = [[512, 512, 256, 128], [512, 256, 128, 128]]
-        self.deep_pool4 = DeepPoolLayer(deep_pool[0][0], deep_pool[1][0], True)
-        self.deep_pool3 = DeepPoolLayer(deep_pool[0][1], deep_pool[1][1], True)
-        self.deep_pool2 = DeepPoolLayer(deep_pool[0][2], deep_pool[1][2], True)
-        self.deep_pool1 = DeepPoolLayer(deep_pool[0][3], deep_pool[1][3], False)
+        self.deep_pool4 = DeepPoolLayer(deep_pool[0][0], deep_pool[1][0], True, has_bn=has_bn)
+        self.deep_pool3 = DeepPoolLayer(deep_pool[0][1], deep_pool[1][1], True, has_bn=has_bn)
+        self.deep_pool2 = DeepPoolLayer(deep_pool[0][2], deep_pool[1][2], True, has_bn=has_bn)
+        self.deep_pool1 = DeepPoolLayer(deep_pool[0][3], deep_pool[1][3], False, has_bn=has_bn)
 
         # ScoreLayer
         score = 128
@@ -325,7 +356,7 @@ class PoolNet(nn.Module):
 
 class Solver(object):
 
-    def __init__(self, train_loader, epoch, batch_size, iter_size, save_folder, show_every, lr, wd):
+    def __init__(self, train_loader, epoch, batch_size, iter_size, save_folder, show_every, lr, wd, has_bn):
         self.train_loader = train_loader
         self.iter_size = iter_size
         self.epoch = epoch
@@ -335,6 +366,7 @@ class Solver(object):
 
         self.wd = wd
         self.lr = lr
+        self.has_bn = has_bn
         self.lr_decay_epoch = [15, ]
 
         self.net = self.build_model()
@@ -342,7 +374,7 @@ class Solver(object):
         pass
 
     def build_model(self):
-        net = PoolNet().cuda()
+        net = PoolNet(has_bn=self.has_bn).cuda()
         net.vgg16.load_pretrained_model()
         self._print_network(net, 'PoolNet Structure')
         return net
@@ -393,9 +425,9 @@ class Solver(object):
         pass
 
     @staticmethod
-    def test(model_path, test_loader, result_fold):
+    def test(model_path, test_loader, result_fold, has_bn):
         Tools.print('Loading trained model from {}'.format(model_path))
-        net = PoolNet().cuda()
+        net = PoolNet(has_bn=has_bn).cuda()
         net.load_state_dict(torch.load(model_path))
         net.eval()
 
@@ -467,27 +499,28 @@ class Solver(object):
     pass
 
 
-def my_train(run_name, lr=5e-5, wd=5e-4, batch_size=1, image_size=None, epoch=24, iter_size=10, show_every=50):
+def my_train(run_name, lr=5e-5, wd=5e-4, batch_size=1,
+             image_size=None, epoch=24, iter_size=10, show_every=50, has_bn=True):
     if batch_size > 1:
         assert image_size is not None
 
     train_root, train_list = "./data/DUTS/DUTS-TR", "./data/DUTS/DUTS-TR/train_pair.lst"
     save_folder = Tools.new_dir('./results/{}'.format(run_name))
 
-    dataset = ImageDataTrain(train_root, train_list, image_size=image_size)
+    dataset = ImageDataTrain(train_root, train_list, image_size=image_size, batch_size=batch_size)
     train_loader = data.DataLoader(dataset=dataset, batch_size=batch_size, shuffle=True, num_workers=8)
 
-    train = Solver(train_loader, epoch, batch_size, iter_size, save_folder, show_every, lr, wd)
+    train = Solver(train_loader, epoch, batch_size, iter_size, save_folder, show_every, lr, wd, has_bn)
     train.train()
     pass
 
 
-def my_test(run_name="run-6", sal_mode="t", model_path='./results/run-6/epoch_22.pth'):
+def my_test(run_name="run-6", sal_mode="t", model_path='./results/run-6/epoch_22.pth', has_bn=True):
     result_fold = Tools.new_dir("./results/test/{}/{}".format(run_name, sal_mode))
 
     dataset = ImageDataTest(sal_mode)
     test_loader = data.DataLoader(dataset=dataset, batch_size=1, shuffle=False, num_workers=1)
-    Solver.test(model_path, test_loader, result_fold)
+    Solver.test(model_path, test_loader, result_fold, has_bn)
 
     label_list = [os.path.join(dataset.data_source["mask_root"],
                                "{}.png".format(os.path.splitext(_)[0])) for _ in dataset.image_list]
@@ -538,27 +571,19 @@ def my_test(run_name="run-6", sal_mode="t", model_path='./results/run-6/epoch_22
 
 
 """
-batch_size=01 320 24 2020-08-01 09:46:14 0.04382734164365161 0.8622201968859436 0.8076379011537488
-batch_size=08 320 24 2020-08-01 20:06:48 0.04400467601286176 0.8508594165711362 0.8040955716095500
-
-batch_size=04 480 01 2020-08-01 22:46:08 0.07890319562418711 0.7573049158512178 0.6594011700578953
-batch_size=04 480 02 2020-08-01 23:55:38 0.07263538323553173 0.7741063254687782 0.6727149700994606
-batch_size=04 480 03 2020-08-02 00:26:07 0.06495515407389885 0.7675775764532387 0.6926043165058576
-batch_size=04 480 18 2020-08-02 09:07:45 0.048566140185210216 0.8127042441806771 0.7630705301043974
-
-batch_size=16 256 01 2020-08-02 09:39:17 0.10341842702580475 0.7281378538090353 0.5988118977406801
-batch_size=16 256 06 2020-08-02 10:24:33 0.06476589209489125 0.8273255588777589 0.7379714774973788
-batch_size=16 256 08 2020-08-02 10:44:09 0.055854637692585134 0.8263596906465597 0.7662890195039139
+batch_size=01 24 2020-08-01 09:46:14 0.04382734164365161 0.8622201968859436 0.8076379011537488
+batch_size=08 24 2020-08-01 20:06:49 0.0525528010730672 0.84685922420140360 0.7950715557516135
 """
 
 
 if __name__ == '__main__':
-    os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+    os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
-    _batch_size = 16
-    _image_size = 256
-    _run_name = "run-{}-{}".format(_batch_size, _image_size)
-    # my_train(run_name=_run_name, lr=5e-5, wd=5e-4,
-    #          batch_size=_batch_size, image_size=_image_size, epoch=24, iter_size=10, show_every=1000)
-    my_test(run_name=_run_name, sal_mode="t", model_path='./results/{}/epoch_11.pth'.format(_run_name))
+    _batch_size = 1
+    _image_size = 320
+    _has_bn = True
+    _run_name = "run-bn{}-{}-{}".format(_has_bn, _batch_size, _image_size)
+    my_train(run_name=_run_name, lr=5e-5, wd=5e-4, has_bn=_has_bn,
+             batch_size=_batch_size, image_size=_image_size, epoch=24, iter_size=10, show_every=50)
+    # my_test(run_name=_run_name, sal_mode="t", model_path='./results/{}/epoch_24.pth'.format(_run_name), has_bn=_has_bn)
     pass
