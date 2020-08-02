@@ -52,18 +52,14 @@ class RandomHorizontalFlip(object):
 
 class ImageDataTrain(data.Dataset):
 
-    def __init__(self, data_root, data_list, image_size=None):
+    def __init__(self, data_root, data_list):
         self.sal_root = data_root
         self.sal_source = data_list
         with open(self.sal_source, 'r') as f:
             self.sal_list = [x.strip() for x in f.readlines()]
         self.sal_num = len(self.sal_list)
 
-        if image_size is not None:
-            self.transform = transforms.Compose([FixedResize(image_size), RandomHorizontalFlip()])
-        else:
-            self.transform = transforms.Compose([RandomHorizontalFlip()])
-            pass
+        self.transform1 = transforms.Compose([RandomHorizontalFlip()])
         self.transform2 = transforms.Compose([
             transforms.ToTensor(), transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])])
         self.transform3 = transforms.Compose([transforms.ToTensor()])
@@ -77,7 +73,7 @@ class ImageDataTrain(data.Dataset):
 
         if image.size == label.size:
             sample = {'image': image, 'label': label}
-            sample = self.transform(sample)
+            sample = self.transform1(sample)
             image, label = sample['image'], sample['label']
 
             image = self.transform2(image)
@@ -325,17 +321,16 @@ class PoolNet(nn.Module):
 
 class Solver(object):
 
-    def __init__(self, train_loader, epoch, batch_size, iter_size, save_folder, show_every, lr, wd):
+    def __init__(self, train_loader, epoch, iter_size, save_folder, show_every, lr, wd, lr_decay_epoch):
         self.train_loader = train_loader
         self.iter_size = iter_size
         self.epoch = epoch
-        self.batch_size = batch_size
         self.show_every = show_every
         self.save_folder = save_folder
 
         self.wd = wd
         self.lr = lr
-        self.lr_decay_epoch = [15, ]
+        self.lr_decay_epoch = lr_decay_epoch
 
         self.net = self.build_model()
         self.optimizer = Adam(self.net.parameters(), lr=self.lr, weight_decay=self.wd)
@@ -349,7 +344,7 @@ class Solver(object):
 
     def train(self):
         self.net.train()
-        iter_num = len(self.train_loader.dataset) // self.batch_size
+        iter_num = len(self.train_loader.dataset)
         ave_grad = 0
         for epoch in range(self.epoch):
             r_sal_loss = 0
@@ -360,7 +355,7 @@ class Solver(object):
                 sal_pred = self.net(sal_image)
                 sal_loss_fuse = F.binary_cross_entropy_with_logits(sal_pred, sal_label, reduction='sum')
 
-                sal_loss = sal_loss_fuse / (self.iter_size * self.batch_size)
+                sal_loss = sal_loss_fuse / (self.iter_size)
                 r_sal_loss += sal_loss.data
 
                 sal_loss.backward()
@@ -374,7 +369,7 @@ class Solver(object):
                     ave_grad = 0
                     pass
 
-                if i % (self.show_every // self.batch_size) == 0:
+                if i % self.show_every == 0:
                     Tools.print('epoch: [{:2d}/{:2d}], lr={:.6f} iter:[{:5d}/{:5d}] || Sal:{:10.4f}'.format(
                         epoch, self.epoch, self.lr, i, iter_num, r_sal_loss / self.show_every))
                     r_sal_loss = 0
@@ -467,17 +462,14 @@ class Solver(object):
     pass
 
 
-def my_train(run_name, lr=5e-5, wd=5e-4, batch_size=1, image_size=None, epoch=24, iter_size=10, show_every=50):
-    if batch_size > 1:
-        assert image_size is not None
-
+def my_train(run_name, lr=5e-5, lr_decay_epoch=[20, ], wd=5e-4, epoch=30, iter_size=10, show_every=50):
     train_root, train_list = "./data/DUTS/DUTS-TR", "./data/DUTS/DUTS-TR/train_pair.lst"
     save_folder = Tools.new_dir('./results/{}'.format(run_name))
 
-    dataset = ImageDataTrain(train_root, train_list, image_size=image_size)
-    train_loader = data.DataLoader(dataset=dataset, batch_size=batch_size, shuffle=True, num_workers=8)
+    dataset = ImageDataTrain(train_root, train_list)
+    train_loader = data.DataLoader(dataset=dataset, batch_size=1, shuffle=True, num_workers=8)
 
-    train = Solver(train_loader, epoch, batch_size, iter_size, save_folder, show_every, lr, wd)
+    train = Solver(train_loader, epoch, iter_size, save_folder, show_every, lr, wd, lr_decay_epoch)
     train.train()
     pass
 
@@ -538,27 +530,21 @@ def my_test(run_name="run-6", sal_mode="t", model_path='./results/run-6/epoch_22
 
 
 """
-batch_size=01 320 24 2020-08-01 09:46:14 0.04382734164365161 0.8622201968859436 0.8076379011537488
-batch_size=08 320 24 2020-08-01 20:06:48 0.04400467601286176 0.8508594165711362 0.8040955716095500
-
-batch_size=04 480 01 2020-08-01 22:46:08 0.07890319562418711 0.7573049158512178 0.6594011700578953
-batch_size=04 480 02 2020-08-01 23:55:38 0.07263538323553173 0.7741063254687782 0.6727149700994606
-batch_size=04 480 03 2020-08-02 00:26:07 0.06495515407389885 0.7675775764532387 0.6926043165058576
-batch_size=04 480 18 2020-08-02 09:07:45 0.048566140185210216 0.8127042441806771 0.7630705301043974
-
-batch_size=16 256 01 2020-08-02 09:39:17 0.10341842702580475 0.7281378538090353 0.5988118977406801
-batch_size=16 256 06 2020-08-02 10:24:33 0.06476589209489125 0.8273255588777589 0.7379714774973788
-batch_size=16 256 08 2020-08-02 10:44:09 0.055854637692585134 0.8263596906465597 0.7662890195039139
+run-bs1-1 03 2020-08-02 12:45:28 0.061243499870300590 0.8298500218691871 0.7499905885601134
+run-bs1-1 08 2020-08-02 14:49:37 0.056200328970829105 0.8515934538744886 0.7711572613657637
+run-bs1-1 10 2020-08-02 15:24:32 0.06698673609959845 0.8381619395580807 0.7487908308981894
+run-bs1-1 13 2020-08-02 16:34:31 0.05687058084128453 0.8412742565090119 0.7732369613150594
+run-bs1-1 14 2020-08-02 17:06:37 0.0490504634718907 0.856657424064755 0.7934991492188517
+run-bs1-1 16 2020-08-02 18:21:16 0.048037743865782585 0.8636167346641255 0.7904541944760938
+run-bs1-1 17 2020-08-02 18:10:17 0.0528510218065049 0.8541680270996393 0.7865446880947994
+run-bs1-1 20 2020-08-02 19:20:58 0.04505144280170531 0.8629248360646711 0.8060539214429449
 """
 
 
 if __name__ == '__main__':
-    os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+    os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
-    _batch_size = 16
-    _image_size = 256
-    _run_name = "run-{}-{}".format(_batch_size, _image_size)
-    # my_train(run_name=_run_name, lr=5e-5, wd=5e-4,
-    #          batch_size=_batch_size, image_size=_image_size, epoch=24, iter_size=10, show_every=1000)
-    my_test(run_name=_run_name, sal_mode="t", model_path='./results/{}/epoch_11.pth'.format(_run_name))
+    _run_name = "run-bs1-1"
+    # my_train(run_name=_run_name, lr=5e-5, lr_decay_epoch=[20, ], wd=5e-4, epoch=30, iter_size=10, show_every=1000)
+    my_test(run_name=_run_name, sal_mode="t", model_path='./results/{}/epoch_20.pth'.format(_run_name))
     pass
