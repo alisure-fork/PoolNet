@@ -19,7 +19,7 @@ def get_file(mask_path, result_path):
 
 
 if __name__ == '__main__':
-    _result_files = get_file("./data/DUTS/DUTS-TE/DUTS-TE-Mask", "./results/test/run-8/t")
+    _result_files = get_file("./data/DUTS/DUTS-TE/DUTS-TE-Mask", "./results/test/run-bs1-Res50-2/t")
     _txt = "\n".join(_result_files)
     Tools.write_to_txt("salmetric.txt", _txt, reset=True)
     pass

@@ -168,9 +168,9 @@ class Solver(object):
         self.lr_decay_epoch = [15, ]
 
         self.net = self.build_model()
-        # self.optimizer = Adam(filter(lambda p: p.requires_grad, self.net.parameters()),
-        #                       lr=self.lr, weight_decay=self.wd)
-        self.optimizer = Adam(self.net.parameters(), lr=self.lr, weight_decay=self.wd)
+        self.optimizer = Adam(filter(lambda p: p.requires_grad, self.net.parameters()),
+                              lr=self.lr, weight_decay=self.wd)
+        # self.optimizer = Adam(self.net.parameters(), lr=self.lr, weight_decay=self.wd)
         pass
 
     def build_model(self):
@@ -180,7 +180,7 @@ class Solver(object):
 
         # BN层中有个参数use_global_stats，它表示是否使用caffe内部的均值和方差。
         # 训练模型的时候，将BN层use_global_stats设置为false；测试的时候设置为true，不然训练的时候会报nan或者模型不收敛。
-        # net.eval()  # use_global_stats = True
+        net.eval()  # use_global_stats = True
 
         net.apply(self.weights_init)
         if self.pretrained_model:
@@ -233,9 +233,9 @@ class Solver(object):
 
             if epoch in self.lr_decay_epoch:
                 self.lr = self.lr * 0.1
-                # self.optimizer = Adam(filter(lambda p: p.requires_grad, self.net.parameters()),
-                #                       lr=self.lr, weight_decay=self.wd)
-                self.optimizer = Adam(self.net.parameters(), lr=self.lr, weight_decay=self.wd)
+                self.optimizer = Adam(filter(lambda p: p.requires_grad, self.net.parameters()),
+                                      lr=self.lr, weight_decay=self.wd)
+                # self.optimizer = Adam(self.net.parameters(), lr=self.lr, weight_decay=self.wd)
                 pass
             pass
 
@@ -349,14 +349,14 @@ if __name__ == '__main__':
     if is_train:
         vgg_path = './pretrained/vgg16_20M.pth'
         resnet_path = './pretrained/resnet50_caffe.pth'
-        # arch = "resnet"  # vgg
-        arch = "vgg"  # resnet
+        arch = "resnet"  # vgg
+        # arch = "vgg"  # resnet
         pretrained_model = vgg_path
 
         lr, wd = 5e-5, 5e-4
         epoch, batch_size, iter_size, show_every = 24, 1, 10, 50
         train_root, train_list = "./data/DUTS/DUTS-TR", "./data/DUTS/DUTS-TR/train_pair.lst"
-        save_folder = Tools.new_dir('./results/run-5')
+        save_folder = Tools.new_dir('./results/run-Res50-2')
 
         dataset = ImageDataTrain(train_root, train_list)
         train_loader = data.DataLoader(dataset=dataset, batch_size=batch_size, shuffle=True, num_workers=1)
@@ -366,8 +366,8 @@ if __name__ == '__main__':
         train.train()
     else:
         _sal_mode = "t"
-        # _arch = "resnet"  # vgg
-        _arch = "vgg"  # resnet
+        _arch = "resnet"  # vgg
+        # _arch = "vgg"  # resnet
 
         """
         5  2020-07-27 20:36:31 0.05241527077488283 0.8517848012525331 0.7765582209583028
@@ -411,9 +411,11 @@ if __name__ == '__main__':
         run-6 19 2020-07-30 13:00:25 0.04514415867812501 0.8659445354784423 0.8070121604720351
         run-6 22 2020-07-30 15:22:04 0.04307363189392385 0.8680233392556596 0.813105198620217
         """
-        _run_name = "run-6"
-        _model_path = './results/{}/epoch_22.pth'.format(_run_name)
+        # _run_name = "run-6"
+        # _model_path = './results/{}/epoch_22.pth'.format(_run_name)
 
+        _run_name = "run-Res50-2"
+        _model_path = './results/{}/epoch_1.pth'.format(_run_name)
         _result_fold = Tools.new_dir("./results/test/{}/{}".format(_run_name, _sal_mode))
 
         _dataset = ImageDataTest(_sal_mode)

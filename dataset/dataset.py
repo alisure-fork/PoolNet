@@ -7,6 +7,7 @@ import numpy as np
 from PIL import Image
 from torch.utils import data
 from torchvision import transforms
+from alisuretool.Tools import Tools
 from torchvision.transforms import functional as F
 
 
@@ -30,8 +31,11 @@ class ImageDataTrain(data.Dataset):
         sal_image = torch.Tensor(sal_image)
         sal_label = torch.Tensor(sal_label)
 
-        sample = {'sal_image': sal_image, 'sal_label': sal_label}
-        return sample
+        if sal_image.shape[1:] != sal_label.shape[1:]:
+            Tools.print('IMAGE ERROR, PASSING {} {}'.format(im_name, gt_name))
+            sal_image, sal_label = self.__getitem__(np.random.randint(0, self.sal_num))
+            pass
+        return sal_image, sal_label
 
     def __len__(self):
         return self.sal_num

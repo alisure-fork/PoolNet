@@ -259,7 +259,7 @@ class PoolNet(nn.Module):
         ind = 512
         self.ppm1 = nn.Sequential(nn.AdaptiveAvgPool2d(1), nn.Conv2d(ind, ind, 1, 1, bias=False), nn.ReLU(inplace=True))
         self.ppm2 = nn.Sequential(nn.AdaptiveAvgPool2d(3), nn.Conv2d(ind, ind, 1, 1, bias=False), nn.ReLU(inplace=True))
-        self.ppm3 = nn.Sequential(nn.AdaptiveAvgPool2d(4), nn.Conv2d(ind, ind, 1, 1, bias=False), nn.ReLU(inplace=True))
+        self.ppm3 = nn.Sequential(nn.AdaptiveAvgPool2d(5), nn.Conv2d(ind, ind, 1, 1, bias=False), nn.ReLU(inplace=True))
         self.ppm_cat = nn.Sequential(nn.Conv2d(ind * 4, ind, 3, 1, 1, bias=False), nn.ReLU(inplace=True))
 
         # INFO
@@ -541,10 +541,22 @@ run-bs1-1 20 2020-08-02 19:20:58 0.04505144280170531 0.8629248360646711 0.806053
 """
 
 
-if __name__ == '__main__':
-    os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+"""
+1  2020-08-25 12:09:19 0.09290798801529357 0.7999409876268433 0.6638541039865719
+2  2020-08-25 12:18:40 0.07137772219000536 0.8128435546850671 0.7204765543657229
+3  2020-08-25 12:59:53 0.05803457403117318 0.8378779581561130 0.7539012803228693
+7  2020-08-25 14:32:27 0.05270729779569567 0.8531844734109193 0.7752632475564520
+12 2020-08-25 16:17:25 0.04766325654780945 0.8597412029895403 0.7957605945624355
+16 2020-08-25 18:02:11 0.07683109678603596 0.8325471928980899 0.7292563664067708
+21 2020-08-25 19:40:44 0.05888784596912002 0.8335934981252278 0.7665156433185103
+30 2020-08-25 23:11:04 0.04090034554872460 0.8658929834171337 0.8151604637686163
+"""
 
-    _run_name = "run-bs1-1"
+
+if __name__ == '__main__':
+    os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+
+    _run_name = "run-bs1-3"
     # my_train(run_name=_run_name, lr=5e-5, lr_decay_epoch=[20, ], wd=5e-4, epoch=30, iter_size=10, show_every=1000)
-    my_test(run_name=_run_name, sal_mode="t", model_path='./results/{}/epoch_20.pth'.format(_run_name))
+    my_test(run_name=_run_name, sal_mode="t", model_path='./results/{}/epoch_30.pth'.format(_run_name))
     pass

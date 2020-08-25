@@ -18,23 +18,8 @@ import torchvision.utils as vutils
 from alisuretool.Tools import Tools
 from collections import OrderedDict
 from torch.autograd import Variable
+from dataset.dataset import ImageDataTrain
 from torch.nn import utils, functional as F
-
-
-class FixedResize(object):
-
-    def __init__(self, size):
-        self.size = (size, size)
-        pass
-
-    def __call__(self, sample):
-        img = sample['image']
-        mask = sample['label']
-        img = img.resize(self.size, Image.BILINEAR)
-        mask = mask.resize(self.size, Image.NEAREST)
-        return {'image': img, 'label': mask}
-
-    pass
 
 
 class RandomHorizontalFlip(object):
@@ -50,7 +35,7 @@ class RandomHorizontalFlip(object):
     pass
 
 
-class ImageDataTrain(data.Dataset):
+class ImageDataTrain2(data.Dataset):
 
     def __init__(self, data_root, data_list):
         self.sal_root = data_root
@@ -103,11 +88,20 @@ class ImageDataTest(data.Dataset):
             transforms.ToTensor(), transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])])
         pass
 
-    def __getitem__(self, item):
+    def __getitem2__(self, item):
         name = self.image_list[item % self.image_num]
         image = Image.open(os.path.join(self.data_root, name)).convert("RGB")
         image = self.transform(image)
         return image, name
+
+    def __getitem__(self, item):
+        name = self.image_list[item % self.image_num]
+        im = cv2.imread(os.path.join(self.data_root, name))
+        in_ = np.array(im, dtype=np.float32)
+        in_ -= np.array((104.00699, 116.66877, 122.67892))
+        in_ = in_.transpose((2, 0, 1))
+        in_ = torch.Tensor(in_)
+        return in_, name
 
     def __len__(self):
         return self.image_num
@@ -147,61 +141,6 @@ class ImageDataTest(data.Dataset):
         else:
             raise Exception(".................")
         return result
-
-    pass
-
-
-class VGG16(nn.Module):
-
-    def __init__(self):
-        super(VGG16, self).__init__()
-        self.cfg = [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'M', 512, 512, 512, 'M', 512, 512, 512, 'M']
-        self.extract = [8, 15, 22, 29]  # [3, 8, 15, 22, 29]
-        self.features = self.vgg(self.cfg)
-
-        self.weight_init(self.modules())
-        pass
-
-    def forward(self, x):
-        tmp_x = []
-        for k in range(len(self.features)):
-            x = self.features[k](x)
-            if k in self.extract:
-                tmp_x.append(x)
-        return tmp_x
-
-    @staticmethod
-    def vgg(cfg, batch_norm=False):
-        layers = []
-        in_channels = 3
-        for v in cfg:
-            if v == 'M':
-                layers += [nn.MaxPool2d(kernel_size=3, stride=2, padding=1)]
-            else:
-                conv2d = nn.Conv2d(in_channels, v, kernel_size=3, padding=1)
-                if batch_norm:
-                    layers += [conv2d, nn.BatchNorm2d(v), nn.ReLU(inplace=True)]
-                else:
-                    layers += [conv2d, nn.ReLU(inplace=True)]
-                in_channels = v
-            pass
-        return nn.Sequential(*layers)
-
-    @staticmethod
-    def weight_init(modules):
-        for m in modules:
-            if isinstance(m, nn.Conv2d):
-                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-                m.weight.data.normal_(0, 0.01)
-            elif isinstance(m, nn.BatchNorm2d):
-                m.weight.data.fill_(1)
-                m.bias.data.zero_()
-            pass
-        pass
-
-    def load_pretrained_model(self, pretrained_model="./pretrained/vgg16-397923af.pth"):
-        self.load_state_dict(torch.load(pretrained_model), strict=False)
-        pass
 
     pass
 
@@ -415,7 +354,19 @@ class PoolNet(nn.Module):
         score = 128
         self.score = nn.Conv2d(score, 1, 1, 1)
 
-        VGG16.weight_init(self.modules())
+        self.weight_init(self.modules())
+        pass
+
+    @staticmethod
+    def weight_init(modules):
+        for m in modules:
+            if isinstance(m, nn.Conv2d):
+                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+                m.weight.data.normal_(0, 0.01)
+            elif isinstance(m, nn.BatchNorm2d):
+                m.weight.data.fill_(1)
+                m.bias.data.zero_()
+            pass
         pass
 
     def forward(self, x):
@@ -478,17 +429,19 @@ class Solver(object):
         self.lr_decay_epoch = lr_decay_epoch
 
         self.net = self.build_model()
-        self.optimizer = Adam(self.net.parameters(), lr=self.lr, weight_decay=self.wd)
+        self.optimizer = Adam(filter(lambda p: p.requires_grad, self.net.parameters()),
+                              lr=self.lr, weight_decay=self.wd)
+        # self.optimizer = Adam(self.net.parameters(), lr=self.lr, weight_decay=self.wd)
         pass
 
     def build_model(self):
         net = PoolNet().cuda()
+        net.eval()  # use_global_stats = True
         net.resnet.load_pretrained_model()
         self._print_network(net, 'PoolNet Structure')
         return net
 
     def train(self):
-        self.net.train()
         iter_num = len(self.train_loader.dataset)
         ave_grad = 0
         for epoch in range(self.epoch):
@@ -525,7 +478,9 @@ class Solver(object):
 
             if epoch in self.lr_decay_epoch:
                 self.lr = self.lr * 0.1
-                self.optimizer = Adam(self.net.parameters(), lr=self.lr, weight_decay=self.wd)
+                self.optimizer = Adam(filter(lambda p: p.requires_grad, self.net.parameters()),
+                                      lr=self.lr, weight_decay=self.wd)
+                # self.optimizer = Adam(self.net.parameters(), lr=self.lr, weight_decay=self.wd)
                 pass
             pass
 
@@ -536,8 +491,8 @@ class Solver(object):
     def test(model_path, test_loader, result_fold):
         Tools.print('Loading trained model from {}'.format(model_path))
         net = PoolNet().cuda()
-        net.load_state_dict(torch.load(model_path))
         net.eval()
+        net.load_state_dict(torch.load(model_path))
 
         time_s = time.time()
         img_num = len(test_loader)
@@ -635,14 +590,22 @@ def my_test(run_name="run-6", sal_mode="t", model_path='./results/run-6/epoch_22
 
 
 """
-
+1 2020-08-25 12:09:19 0.09290798801529357 0.7799409876268433 0.6638541039865719
+2 2020-08-25 12:15:50 0.0767591619275389 0.8244083528593976 0.710306342252603
+3 2020-08-25 12:59:07 0.06114729114043897 0.8137821245940858 0.7243047221178921
+4 2020-08-25 13:39:03 0.05508279566306756 0.8395519307893983 0.7529511719970813
+6 2020-08-25 14:31:28 0.05038543232953151 0.8492332687482643 0.7817261060934924
+7 2020-08-25 16:16:35 0.04884050921221514 0.8494100661920133 0.7814156208512428
+14 2020-08-25 18:01:48 0.05409165836261161 0.7890804447979982 0.739574602883087
+17 2020-08-25 19:40:28 0.04831605306314065 0.8552850196469899 0.7929382611034238
+25 2020-08-25 23:11:28 0.039914510669972945 0.8675700565181682 0.8170381191272179
 """
 
 
 if __name__ == '__main__':
-    os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+    os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
-    _run_name = "run-bs1-Res50-1"
-    my_train(run_name=_run_name, lr=5e-5, lr_decay_epoch=[20, ], wd=5e-4, epoch=30, iter_size=10, show_every=1000)
-    # my_test(run_name=_run_name, sal_mode="t", model_path='./results/{}/epoch_20.pth'.format(_run_name))
+    _run_name = "run-bs1-Res50-3"
+    # my_train(run_name=_run_name, lr=5e-5, lr_decay_epoch=[20, ], wd=5e-4, epoch=30, iter_size=10, show_every=1000)
+    my_test(run_name=_run_name, sal_mode="t", model_path='./results/{}/epoch_25.pth'.format(_run_name))
     pass
