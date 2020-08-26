@@ -599,6 +599,7 @@ def my_test(run_name="run-6", sal_mode="t", model_path='./results/run-6/epoch_22
 14 2020-08-25 18:01:48 0.05409165836261161 0.7890804447979982 0.739574602883087
 17 2020-08-25 19:40:28 0.04831605306314065 0.8552850196469899 0.7929382611034238
 25 2020-08-25 23:11:28 0.039914510669972945 0.8675700565181682 0.8170381191272179
+30 2020-08-26 11:11:15 0.03872968022633624 0.8682404968758722 0.8208055790036504
 """
 
 
@@ -607,5 +608,5 @@ if __name__ == '__main__':
 
     _run_name = "run-bs1-Res50-3"
     # my_train(run_name=_run_name, lr=5e-5, lr_decay_epoch=[20, ], wd=5e-4, epoch=30, iter_size=10, show_every=1000)
-    my_test(run_name=_run_name, sal_mode="t", model_path='./results/{}/epoch_25.pth'.format(_run_name))
+    my_test(run_name=_run_name, sal_mode="t", model_path='./results/{}/epoch_30.pth'.format(_run_name))
     pass
